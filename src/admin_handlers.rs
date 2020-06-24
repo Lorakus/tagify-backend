@@ -1,206 +1,97 @@
-use crate::errors::UserError;
-use crate::models::{Hash, ReceivedUser, User};
+use crate::errors::HandlerError;
+use crate::models::{CreateUser, UpdateUserAdmin, User};
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, Result};
 use deadpool_postgres::Pool;
-use log::{debug, error};
+use log::error;
 
-pub async fn create_admin(
+use crate::db;
+
+pub async fn create_user(
     pool: web::Data<Pool>,
-    data: web::Json<ReceivedUser>,
-) -> Result<HttpResponse, UserError> {
+    data: web::Json<CreateUser>,
+) -> Result<HttpResponse, HandlerError> {
     let client = match pool.get().await {
         Ok(item) => item,
         Err(e) => {
             error!("Error occured : {}", e);
-            return Err(UserError::InternalError);
+            return Err(HandlerError::InternalError);
         }
     };
 
-    error!("Hello World!");
-    debug!("{:#?}", data);
+    let result = match db::create_user(&client, &data).await {
+        Err(e) => {
+            error!("Error occured: {}", e);
+            return Err(HandlerError::InternalError);
+        }
+        Ok(item) => item,
+    };
 
-    //Check if password is not empty
-    if data.password.len() == 0 {
-        return Err(UserError::BadClientData {
-            field: "password field cannot be empty".to_string(),
-        });
-    }
-
-    if data.username.len() == 0 {
-        return Err(UserError::BadClientData {
-            field: "username field cannot be empty".to_string(),
-        });
-    }
-
-    // Check if password and repeatPassword match
-    if !data.password.eq(&data.repeat_password) {
-        return Err(UserError::BadClientData {
-            field: "password and password repeat fields don't match".to_string(),
-        });
-    }
-
-    let mut admin = User::create_user(&data.username, &data.password, true);
-
-    if let Err(e) = admin.hash_password() {
-        error!("Error occured: {}", e);
-        return Err(UserError::InternalError);
-    }
-
-    // Query data
-    let result = client
-        .execute(
-            "INSERT INTO users (username, nickname, password, is_admin) VALUES ($1,$2,$3,$4)",
-            &[
-                &admin.username,
-                &admin.nickname,
-                &admin.password,
-                &admin.is_admin,
-            ],
-        )
-        .await;
-
-    if let Err(e) = result {
-        error!("Error occured: {}", e);
-        return Err(UserError::InternalError);
-    }
-
-    Ok(HttpResponse::new(StatusCode::OK))
+    Ok(HttpResponse::build(StatusCode::OK).json(result))
 }
 
-pub async fn delete_admin(
+pub async fn update_user(
     pool: web::Data<Pool>,
-    data: web::Path<(String,)>,
-) -> Result<HttpResponse, UserError> {
+    id: web::Path<(i32,)>,
+    data: web::Json<UpdateUserAdmin>,
+) -> Result<HttpResponse, HandlerError> {
     let client = match pool.get().await {
         Ok(item) => item,
         Err(e) => {
-            error!("Error occured: {}", e);
-            return Err(UserError::InternalError);
+            error!("Error occured : {}", e);
+            return Err(HandlerError::InternalError);
         }
     };
 
-    debug!("Admin delete debug: {}", data.0);
+    let user = match db::get_user(&client, id.0).await {
+        Ok(i) => i,
+        Err(e) => {
+            error!("Error occured : {}", e);
+            return Err(HandlerError::BadClientData {
+                field: "User id does not exist".to_owned(),
+            });
+        }
+    };
 
-    // Query data
-    let result = client
-        .execute("DELETE FROM users WHERE username = $1", &[&data.0])
-        .await;
+    let new_user = User {
+        nickname: data.nickname.clone(),
+        password: data.password.clone(),
+        role: data.role.clone(),
+        ..user
+    };
 
-    match result {
+    let result = match db::update_user(&client, &new_user).await {
         Err(e) => {
             error!("Error occured: {}", e);
-            return Err(UserError::InternalError);
+            return Err(HandlerError::InternalError);
         }
-        Ok(num_updated) => {
-            if num_updated == 0 {
-                return Err(UserError::BadClientData {
-                    field: "user does not exist".to_string(),
-                });
-            }
-        }
+        Ok(item) => item,
     };
 
-    Ok(HttpResponse::new(StatusCode::OK))
+    Ok(HttpResponse::build(StatusCode::OK).json(result))
 }
 
 pub async fn delete_user(
     pool: web::Data<Pool>,
-    data: web::Path<(String,)>,
-) -> Result<HttpResponse, UserError> {
+    data: web::Path<(i32,)>,
+) -> Result<HttpResponse, HandlerError> {
     let client = match pool.get().await {
         Ok(item) => item,
         Err(e) => {
             error!("Error occured: {}", e);
-            return Err(UserError::InternalError);
+            return Err(HandlerError::InternalError);
         }
     };
 
-    debug!("User delete debug: {}", data.0);
-    // TODO: Need to be an admin to perform DELETE user. Wait for AuthAdmin middleware
-
-    // TODO: This API endpoint is used for DELETE normal user, use different API for DELETE admin
-
-    // Query data
-    let result = client
-        .execute("DELETE FROM users WHERE username = $1", &[&data.0])
-        .await;
+    let result = db::delete_user(&client, data.0).await;
 
     match result {
         Err(e) => {
             error!("Error occured: {}", e);
-            return Err(UserError::InternalError);
+            return Err(HandlerError::InternalError);
         }
-        Ok(num_updated) => {
-            if num_updated == 0 {
-                return Err(UserError::BadClientData {
-                    field: "user does not exist".to_string(),
-                });
-            }
-        }
+        Ok(_res) => {}
     };
-
-    Ok(HttpResponse::new(StatusCode::OK))
-}
-
-pub async fn create_user(
-    pool: web::Data<Pool>,
-    data: web::Json<ReceivedUser>,
-) -> Result<HttpResponse, UserError> {
-    let client = match pool.get().await {
-        Ok(item) => item,
-        Err(e) => {
-            error!("Error occured : {}", e);
-            return Err(UserError::InternalError);
-        }
-    };
-
-    debug!("{:#?}", data);
-
-    //Check if password is not empty
-    if data.password.len() == 0 {
-        return Err(UserError::BadClientData {
-            field: "password field cannot be empty".to_string(),
-        });
-    }
-
-    if data.username.len() == 0 {
-        return Err(UserError::BadClientData {
-            field: "username field cannot be empty".to_string(),
-        });
-    }
-
-    // Check if password and repeatPassword match
-    if !data.password.eq(&data.repeat_password) {
-        return Err(UserError::BadClientData {
-            field: "password and password repeat fields don't match".to_string(),
-        });
-    }
-
-    let mut admin = User::create_user(&data.username, &data.password, false);
-
-    if let Err(e) = admin.hash_password() {
-        error!("Error occured: {}", e);
-        return Err(UserError::InternalError);
-    }
-
-    // Query data
-    let result = client
-        .execute(
-            "INSERT INTO users (username, nickname, password, is_admin) VALUES ($1,$2,$3,$4)",
-            &[
-                &admin.username,
-                &admin.nickname,
-                &admin.password,
-                &admin.is_admin,
-            ],
-        )
-        .await;
-
-    if let Err(e) = result {
-        error!("Error occured: {}", e);
-        return Err(UserError::InternalError);
-    }
 
     Ok(HttpResponse::new(StatusCode::OK))
 }

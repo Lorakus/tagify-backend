@@ -3,6 +3,18 @@ hostname = "localhost"
 port = "5000"
 key = "geDb76JMcsmxJGkTr28rceAQD4q10T8d"
 
+[default_admin]
+username = "admin"
+nickname = "admin"
+password = "admin"
+role = "admin"
+
+[default_user]
+username = "user"
+nickname = "user"
+password = "user"
+role = "user"
+
 [postgres]
 user = "example"
 password = "example"
