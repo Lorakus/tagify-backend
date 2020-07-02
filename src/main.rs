@@ -339,14 +339,20 @@ async fn main() -> std::io::Result<()> {
             )
             .route("/", web::get().to(index))
             .route("/.*", web::get().to(index))
-    });
+    }).workers(conf.server.threads);
 
     // Enables us to hot reload the server
     let mut listenfd = ListenFd::from_env();
-    server = if let Some(l) = listenfd.take_tcp_listener(0).unwrap() {
-        server.listen(l)?
-    } else {
-        server.bind(ip)?
+    server = match listenfd.take_tcp_listener(0) {
+        Ok(l) => {
+            match l {
+                Some(i) => server.listen(i).expect("Listening failed"),
+                None => server.bind(ip).expect("Binding failed")
+            }
+        }
+        Err(err) => {
+            panic!("Could not take tcp listener: {}", err);
+        }
     };
 
     server.run().await

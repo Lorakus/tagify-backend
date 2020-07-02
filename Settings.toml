@@ -2,6 +2,7 @@
 hostname = "localhost"
 port = "5000"
 key = "geDb76JMcsmxJGkTr28rceAQD4q10T8d"
+threads = 8
 
 [default_admin]
 username = "admin"
