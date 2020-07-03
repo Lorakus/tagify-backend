@@ -30,6 +30,7 @@ time = "0.1.42"
 actix-service = "1.0.5"
 actix-multipart = "0.2.0"
 sanitize-filename = "0.2"
+google-storage1 = "*"
 
 [features]
 # Treat warnings as a build error.
