@@ -2,7 +2,7 @@
 
 use actix_files as fs;
 use actix_files::NamedFile;
-use actix_web::{middleware::Logger, web, App, HttpServer, Result};
+use actix_web::{middleware, middleware::Logger, web, App, HttpServer, Result};
 use std::path::PathBuf;
 
 use listenfd::ListenFd;
@@ -49,10 +49,11 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     let mut conf_path = PathBuf::new();
-
+    let settings_path;
     // If debug build, use execution directory
     if cfg!(debug_assertions) {
         conf_path.push(".");
+        settings_path = conf_path.join("Settings");
     } else {
         // Check if CONFIG_DIR environment variable is available
         let conf_base =
@@ -64,11 +65,11 @@ async fn main() -> std::io::Result<()> {
                 conf_path.to_str().unwrap()
             );
         }
+        settings_path = conf_path.join("Deploy_Settings");
     }
     info!("CONFIG_DIR points to: {}", conf_path.to_str().unwrap());
 
     // Read config
-    let settings_path = conf_path.join("Settings");
     let conf = match crate::config::MyConfig::new(settings_path.to_str().unwrap()) {
         Ok(i) => i,
         Err(e) => {
@@ -193,6 +194,8 @@ async fn main() -> std::io::Result<()> {
             .max_age(max_age)
             .same_site(actix_http::cookie::SameSite::Strict);
         App::new()
+            // Compress middlware
+            .wrap(middleware::Compress::default())
             .data(path_arg)
             // Give login handler access to cookie factory
             .data(cookie_factory_user.clone())
