@@ -1,9 +1,13 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
 
+use actix::prelude::*;
+use actix::{Actor, Addr, Arbiter, Context, System};
+
 use actix_files as fs;
 use actix_files::NamedFile;
 use actix_web::{middleware, middleware::Logger, web, App, HttpServer, Result};
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 use listenfd::ListenFd;
 use log::{error, info};
@@ -28,10 +32,30 @@ mod user_models;
 use crate::handlers::{login, logout, status};
 use user_models::ROLES;
 
+const MILLIS_BETWEEN: u64 = 400;
+
 struct DistPath {
     user: PathBuf,
     admin: PathBuf,
 }
+//start
+struct MyActor;
+impl Actor for MyActor {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let mut last_interval_run = SystemTime::UNIX_EPOCH;
+        ctx.run_interval(Duration::from_millis(MILLIS_BETWEEN), move |_, _| {
+            let ts = SystemTime::now();
+            println!(
+                "I am alive! plus time: {:?}",
+                ts.duration_since(last_interval_run).unwrap()
+            );
+            last_interval_run = ts;
+        });
+    }
+}
+//end
 
 async fn index(data: web::Data<DistPath>) -> Result<NamedFile> {
     Ok(NamedFile::open(data.user.clone())?)
@@ -43,6 +67,11 @@ async fn admin_index(data: web::Data<DistPath>) -> Result<NamedFile> {
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
+    //actix test
+    //let system = System::new("test");
+
+    //let addr = MyActor.start();
+
     if cfg!(debug_assertions) {
         // Setup logging
         std::env::set_var("RUST_LOG", "DEBUG");
@@ -400,6 +429,6 @@ async fn main() -> std::io::Result<()> {
             panic!("Could not take tcp listener: {}", err);
         }
     };
-
+    MyActor.start();
     server.run().await
 }
