@@ -1,12 +1,18 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
 
-use actix::prelude::*;
-use actix::{Actor, Addr, Arbiter, Context, System};
-
 use actix_files as fs;
 use actix_files::NamedFile;
 use actix_web::{middleware, middleware::Logger, web, App, HttpServer, Result};
 use std::path::PathBuf;
+
+extern crate goauth;
+extern crate log;
+extern crate smpl_jwt;
+
+use futures_util::stream::once;
+
+use actix::prelude::*;
+use actix::{Actor, Context};
 use std::time::{Duration, SystemTime};
 
 use listenfd::ListenFd;
@@ -20,6 +26,8 @@ mod db;
 mod errors;
 mod handlers;
 
+mod google_auth;
+
 mod admin_handlers;
 mod album_handlers;
 mod my_cookie_policy;
@@ -32,30 +40,58 @@ mod user_models;
 use crate::handlers::{login, logout, status};
 use user_models::ROLES;
 
-const MILLIS_BETWEEN: u64 = 400;
+use goauth::auth::JwtClaims;
+use goauth::credentials::Credentials;
+use goauth::get_token;
+// use goauth::get_token_blocking;
+
+use goauth::scopes::Scope;
+use smpl_jwt::Jwt;
+
+//48 min
+const MILLIS_BETWEEN: u64 = 1000;
+
+#[derive(Message)]
+#[rtype(result = "()")]
+struct Ping;
+
+struct MyActor;
 
 struct DistPath {
     user: PathBuf,
     admin: PathBuf,
 }
-//start
-struct MyActor;
+
+impl StreamHandler<Ping> for MyActor {
+    fn handle(&mut self, item: Ping, ctx: &mut Context<MyActor>) {
+        let credentials = Credentials::from_file("tagifytest-596619682f98.json").unwrap();
+
+        let claims = JwtClaims::new(
+            credentials.iss(),
+            &Scope::DevStorageReadWrite,
+            credentials.token_uri(),
+            None,
+            None,
+        );
+        println!("hello hello hello");
+        let jwt = Jwt::new(claims, credentials.rsa_key().unwrap(), None);
+
+        match get_token(&jwt, &credentials) {
+            Ok(token) => println!("{}", token),
+            Err(_) => panic!(
+                "An error occurred, somewhere in there, try debugging with `get_token_with_creds`"
+            ),
+        }
+    }
+}
+
 impl Actor for MyActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let mut last_interval_run = SystemTime::UNIX_EPOCH;
-        ctx.run_interval(Duration::from_millis(MILLIS_BETWEEN), move |_, _| {
-            let ts = SystemTime::now();
-            println!(
-                "I am alive! plus time: {:?}",
-                ts.duration_since(last_interval_run).unwrap()
-            );
-            last_interval_run = ts;
-        });
+        ctx.add_stream(once(async { Ping }));
     }
 }
-//end
 
 async fn index(data: web::Data<DistPath>) -> Result<NamedFile> {
     Ok(NamedFile::open(data.user.clone())?)
